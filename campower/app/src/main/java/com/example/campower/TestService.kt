@@ -47,6 +47,7 @@ import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import kotlin.math.pow
 import kotlin.math.round
+import android.os.PowerManager
 
 class TestService : Service() {
 
@@ -84,6 +85,7 @@ class TestService : Service() {
     private var bm_started : Boolean = false
     private var bm_lastTime : Long = 0
     private var bm_runpercent : Int = 0
+    private var bm_slow_iter : Int = 0
     private var bm_teststr : String = ""
     private val doneSemaphore = Semaphore(0)
 
@@ -94,6 +96,7 @@ class TestService : Service() {
 
     fun createOutputDirectory(): File? {
         // Access the public Downloads directory
+        // /storage/emulated/0/Download
         val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
 
         // Format the current date and time
@@ -184,30 +187,51 @@ class TestService : Service() {
 
         // run the tests....
         log2("Running all tests...")
-        val runPercents = listOf(2, 5)
+        val runPercents = listOf(3, 3)
         // crop means the processed/encoded region will be a sub-rectangle of the cam_wxcam_h whole area
         // the crop rect is centered and will be 1920x1080 for 4K full image, 720p for 1080p, 640x360 for 720p
 
+        while(true) {
+            performTest(true, 1920, 1080, 30, false, true, false, false, false, 4)
+        }
+
         for (runpercent in runPercents) {
+
+            //performTest(true, 1920, 1080, 30, false, true, false, true, false, 200)
+            //performTest(false, 3840, 2160, 25, false, true, true, true, true, 100)
+            //performTest(false, 3840, 2160, 25, false, true, false, false, false, runpercent)
+            //performTest(true, 640, 480, 15, false, true, false, false, false, runpercent)
+            //performTest(true, 1280, 720, 5, false, true, false, false, false, runpercent)
+            //performTest(true, 1280, 720, 5, false, true, false, true, false, runpercent)
+            performTest(true, 1920, 1080, 30, false, true, false, true, false, runpercent)
+            performTest(true, 1920, 1080, 30, false, true, false, false, false, runpercent)
+            performTest(true, 1920, 1080, 15, false, true, false, false, false, runpercent)
+            performTest(true, 1920, 1080, 5, false, true, false, false, false, runpercent)
+            performTest(true, 1920, 1080, 30, false, true, false, false, false, runpercent)
+            performTest(true, 640, 480, 5, false, true, false, false, false, runpercent)
+            performTest(true, 1280, 720, 15, false, true, false, false, false, runpercent)
+            performTest(true, 1280, 720, 30, false, true, false, false, false, runpercent)
+            performTest(false, 3840, 2160, 15, false, true, false, false, false, runpercent)
+
             // cropped + NR + FD
-            performTest(true, 1920, 1080, 15, true, true, false, true, false, runpercent)
-            performTest(true, 1920, 1080, 8, true, true, false, true, false, runpercent)
-            performTest(true, 1280, 720, 15, true, true, false, true, false, runpercent)
-            performTest(false, 3840, 2160, 15, true, true, false, true, false, runpercent)
+            //performTest(true, 1920, 1080, 15, true, true, false, true, false, runpercent)
+            //performTest(true, 1920, 1080, 8, true, true, false, true, false, runpercent)
+            //performTest(true, 1280, 720, 15, true, true, false, true, false, runpercent)
+            //performTest(false, 3840, 2160, 15, true, true, false, true, false, runpercent)
 
             // no crop + NR + FD
-            performTest(true, 1920, 1080, 30, false, true, false, true, false, runpercent)
-            performTest(true, 1920, 1080, 15, false, true, false, true, false, runpercent)
-            performTest(true, 1280, 720, 15, false, true, false, true, false, runpercent)
-            performTest(false, 3840, 2160, 15, false, true, false, true, false, runpercent)
+            //performTest(true, 1920, 1080, 30, false, true, false, true, false, runpercent)
+            //performTest(true, 1920, 1080, 15, false, true, false, true, false, runpercent)
+            //performTest(true, 1280, 720, 15, false, true, false, true, false, runpercent)
+            //performTest(false, 3840, 2160, 15, false, true, false, true, false, runpercent)
 
             // Base = 1080p30+NS+FD
             // Base-FD
-            performTest(true, 1920, 1080, 30, false, true, false, false, false, runpercent)
+            //performTest(true, 1920, 1080, 30, false, true, false, false, false, runpercent)
             // Base-NS
-            performTest(true, 1920, 1080, 30, false, false, false, true, false, runpercent)
+            //performTest(true, 1920, 1080, 30, false, false, false, true, false, runpercent)
             // Base-NS-FD
-            performTest(true, 1920, 1080, 30, false, false, false, false, false, runpercent)
+            //performTest(true, 1920, 1080, 30, false, false, false, false, false, runpercent)
         }
 
         log2("Finished!")
@@ -238,7 +262,8 @@ class TestService : Service() {
                 "_NR_${if(noiseReduction) "Y" else "N"}"+
                 "_LDC_${if(LDC) "Y" else "N"}"+
                 "_FD_${if(faceDetection) "Y" else "N"}"+
-                "_EIS_${if(EIS) "Y" else "N"}"
+                "_EIS_${if(EIS) "Y" else "N"}"+
+                "_${timestamp}"
         val videoFile = File(
             outputDir,
             teststr+".mp4"
@@ -663,7 +688,7 @@ class TestService : Service() {
         val voltage =
             batteryStatus?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) ?: 0 // in mV
         // current is in uA on most devices but mA on some :(
-        val currentMilliAmps = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE) ?: 0
+        val currentMilliAmps = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW) ?: 0
         // get temperature
         val batteryTemperature = batteryStatus?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0
         val temperatureCelsius = batteryTemperature / 10.0
@@ -706,8 +731,13 @@ class TestService : Service() {
 
         // measure time since last iteration
         val currentTime = System.currentTimeMillis()
+        val iter_elapsed_seconds=(currentTime-bm_lastTime)/1000.0
         val iter_elapsed_hours= (currentTime-bm_lastTime) / (1000.0 * 60.0 * 60.0)
         bm_lastTime=currentTime
+        if (iter_elapsed_seconds>35) {
+            playDefaultBing(50, 100)
+            bm_slow_iter+=1
+        }
 
         // Calculate elapsed time in hours for average power calculation
         val elapsedTimeMillis = currentTime - bm_monitoringStartTime
@@ -724,7 +754,7 @@ class TestService : Service() {
         val currentBatteryLevelPct=currentBatteryLevel * 100 / bm_scale.toDouble()
 
         log(
-            "Time: $friendlyTime,  NrlyStp: $nearlyTimeToStop "+
+            "Time: $friendlyTime,  Slow $bm_slow_iter NrlyStp: $nearlyTimeToStop "+
                     "BTemp: $temperatureCelsius " +
                     "Voltage: $voltage mV, Current: $currentMilliAmps, "+
                     "Power(cur): ${roundDouble(power,3)} "+
@@ -735,7 +765,7 @@ class TestService : Service() {
                     "AvgPower(cur): ${roundDouble(averagePower2,3)} " +
                     "AvgPower(chg): ${roundDouble(averagePower,3)} " +
                     "Bat: ${currentBatteryLevelPct}% " +
-                    "Faces: $total_faces / $total_face_callbacks"
+                    "Faces: $total_faces / $total_face_callbacks "
         )
 
         // Check threshold and handle stopping if needed...
@@ -747,7 +777,8 @@ class TestService : Service() {
                     "Energy(cur): ${roundDouble(bm_accumulatedEnergy2,3)} "+
                     "Energy(chg): ${roundDouble(bm_accumulatedEnergy,3)} "+
                     "AvgPower(cur): ${roundDouble(averagePower2,3)} "+
-                    "AvgPower(chg) ${roundDouble(averagePower,3)} ")
+                    "AvgPower(chg): ${roundDouble(averagePower,3)} "+
+                    "SlowIter: ${bm_slow_iter} ")
             return -1
         }
 
@@ -776,17 +807,22 @@ class TestService : Service() {
         bm_lastTime = System.currentTimeMillis()
         bm_runpercent=runpercent
         bm_teststr=teststr
+        bm_slow_iter=0
 
         // jump through hoops here to try and choose a reliable mechanism that
         // works in the background - who knows....
         val handlerThread = HandlerThread("BackgroundHandlerThread").apply { start() }
         val handler = Handler(handlerThread.looper)
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Campower::BatteryMonitor")
+        wakeLock.acquire()
         val task: Runnable = object : Runnable {
             override fun run() {
                 log("hello from background run")
                 // Your repeated work here
                 val delay=bm_iter()
                 if (delay>0) {
+                    wakeLock.acquire(60_000L)
                     handler.postDelayed(this, delay.toLong()) // reschedule
                 }
                 else {
@@ -797,12 +833,13 @@ class TestService : Service() {
         }
         handler.post(task)
         log("task started; waiting for done semaphore")
-        if (doneSemaphore.tryAcquire(10*60*60, TimeUnit.SECONDS)) {
+        if (doneSemaphore.tryAcquire(30*60*60, TimeUnit.SECONDS)) {
             // Camera is initialized and first frame received
             log("Semaphore ok")
         } else {
             log("Semaphore timeout")
         }
+        wakeLock.release()
     }
 
     private fun log(message: String) {

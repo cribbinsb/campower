@@ -9,6 +9,10 @@ import android.util.Log
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.app.ActivityCompat
+import android.os.PowerManager
+import android.provider.Settings
+import android.net.Uri
 
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -17,17 +21,22 @@ class MainActivity : AppCompatActivity() {
         Log.d("CamPower", "hello!")
 
         val permissions = mutableListOf(
-            Manifest.permission.CAMERA
+            Manifest.permission.CAMERA,
+            //Manifest.permission.FOREGROUND_SERVICE
         )
 
         // Add FOREGROUND_SERVICE_CAMERA permission only on API > 30
-        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.R) { // API 30 corresponds to Build.VERSION_CODES.R
-            permissions.add(Manifest.permission.FOREGROUND_SERVICE_CAMERA)
-        }
+        //if (Build.VERSION.SDK_INT > Build.VERSION_CODES.R) { // API 30 corresponds to Build.VERSION_CODES.R
+        //    permissions.add(Manifest.permission.FOREGROUND_SERVICE_CAMERA)
+        //}
 
         val missing = permissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
+
+        val isCameraGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        Log.d("CamPower", "CAMERA permission granted: $isCameraGranted")
+
 
         if (missing.isNotEmpty()) {
             Log.d("CamPower", "request permissions")
@@ -35,6 +44,15 @@ class MainActivity : AppCompatActivity() {
         }
         else
         {
+            val intent = Intent()
+            val packageName = packageName
+            val pm = getSystemService(POWER_SERVICE) as PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                intent.action = Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                intent.data = Uri.parse("package:$packageName")
+                startActivity(intent)
+            }
+
             Log.d("CamPower", "Start service")
             startTestService()
         }
@@ -43,8 +61,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+            Log.d("CamPower", "Permission granted")
             startTestService()
         } else {
+            Log.d("CamPower", "Permission denied!")
+            val shouldExplain = ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.CAMERA)
+            Log.d("CamPower", "Should show rationale: $shouldExplain")
+
             // Handle permission denial appropriately.
         }
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
