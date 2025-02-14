@@ -822,7 +822,6 @@ class TestService : Service() {
                 // Your repeated work here
                 val delay=bm_iter()
                 if (delay>0) {
-                    wakeLock.acquire(60_000L)
                     handler.postDelayed(this, delay.toLong()) // reschedule
                 }
                 else {
