@@ -48,6 +48,126 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.pow
 import kotlin.math.round
 import android.os.PowerManager
+import java.lang.NumberFormatException
+
+// Data class to hold a single CPU core’s snapshot.
+data class CpuCoreSnapshot(
+    val cpufreq: Map<Int, Long>,  // Map from frequency (kHz) to cumulative time (µs)
+    val cpuidle: Map<String, Long> // Map from idle state name to cumulative time (µs)
+)
+
+// Overall snapshot holding stats for all CPUs and the timestamp.
+data class Snapshot(
+    val cpuStats: Map<Int, CpuCoreSnapshot>,
+    val timestamp: Long  // Recorded in nanoseconds
+)
+
+// Helper function: Read a snapshot for one CPU core.
+fun readCpuCoreSnapshot(cpuId: Int): CpuCoreSnapshot {
+    val cpufreqStats = mutableMapOf<Int, Long>()
+    // Read the cpufreq stats. Each line is "freq time" where time is in ms.
+    val cpufreqFile = File("/sys/devices/system/cpu/cpu$cpuId/cpufreq/stats/time_in_state")
+    if (cpufreqFile.exists()) {
+        cpufreqFile.forEachLine { line ->
+            val parts = line.trim().split("\\s+".toRegex())
+            if (parts.size >= 2) {
+                try {
+                    val freq = parts[0].toInt()
+                    val timeMs = parts[1].toLong()
+                    // Convert ms to µs so that units match the cpuidle stats.
+                    cpufreqStats[freq] = timeMs * 1000
+                } catch (e: NumberFormatException) {
+                    // Skip malformed line.
+                }
+            }
+        }
+    }
+    val cpuidleStats = mutableMapOf<String, Long>()
+    // Read cpuidle stats: list directories like /sys/devices/system/cpu/cpuX/cpuidle/stateY.
+    val cpuidleDir = File("/sys/devices/system/cpu/cpu$cpuId/cpuidle")
+    if (cpuidleDir.exists() && cpuidleDir.isDirectory) {
+        cpuidleDir.listFiles()?.filter { it.isDirectory && it.name.startsWith("state") }?.forEach { stateDir ->
+            val nameFile = File(stateDir, "name")
+            val timeFile = File(stateDir, "time")
+            if (nameFile.exists() && timeFile.exists()) {
+                val stateName = nameFile.readText().trim()
+                try {
+                    val timeUs = timeFile.readText().trim().toLong()
+                    cpuidleStats[stateName] = timeUs
+                } catch (e: NumberFormatException) {
+                    // Skip if the value isn’t a number.
+                }
+            }
+        }
+    }
+    return CpuCoreSnapshot(cpufreqStats, cpuidleStats)
+}
+
+// This function takes a snapshot of all CPU cores along with the current timestamp.
+fun cpu_analyse_start(): Snapshot {
+    val cpuStats = mutableMapOf<Int, CpuCoreSnapshot>()
+    // List directories matching "cpu[0-9]+" under /sys/devices/system/cpu.
+    val cpuDir = File("/sys/devices/system/cpu")
+    cpuDir.listFiles()?.filter { it.isDirectory && it.name.matches(Regex("cpu\\d+")) }?.forEach { cpu ->
+        val cpuId = cpu.name.substring(3).toIntOrNull() ?: return@forEach
+        cpuStats[cpuId] = readCpuCoreSnapshot(cpuId)
+    }
+    // Record the timestamp in nanoseconds.
+    return Snapshot(cpuStats, System.nanoTime())
+}
+
+// This function takes a starting snapshot and, when called later,
+// computes the differences and returns a formatted string with percentages,
+// using the actual elapsed time as the denominator.
+fun cpu_analyse_stop(startSnapshot: Snapshot): String {
+    // Take a new snapshot.
+    val endSnapshot = cpu_analyse_start()
+    val sb = StringBuilder()
+
+    // Compute actual elapsed time in microseconds.
+    val elapsedTimeUs = (System.nanoTime() - startSnapshot.timestamp) / 1000.0
+
+    // Process each CPU core found in the start snapshot.
+    for ((cpuId, startCore) in startSnapshot.cpuStats) {
+        val endCore = endSnapshot.cpuStats[cpuId] ?: continue
+        sb.append("CPU$cpuId:\n")
+
+        // Compute differences for active (cpufreq) states.
+        val freqDiffs = mutableMapOf<Int, Long>()
+        for ((freq, startTime) in startCore.cpufreq) {
+            val endTime = endCore.cpufreq[freq] ?: 0L
+            val diff = endTime - startTime
+            if (diff >= 0) {
+                freqDiffs[freq] = diff
+            }
+        }
+
+        // Compute differences for idle (cpuidle) states.
+        val idleDiffs = mutableMapOf<String, Long>()
+        for ((state, startTime) in startCore.cpuidle) {
+            val endTime = endCore.cpuidle[state] ?: 0L
+            val diff = endTime - startTime
+            if (diff >= 0) {
+                idleDiffs[state] = diff
+            }
+        }
+
+        // Format active state percentages.
+        for ((freq, diff) in freqDiffs) {
+            val percentage = diff * 100.0 / elapsedTimeUs
+            sb.append("  Active @ ${freq}kHz: ${"%.2f".format(percentage)}%\n")
+        }
+
+        // Format idle state percentages.
+        for ((state, diff) in idleDiffs) {
+            val percentage = diff * 100.0 / elapsedTimeUs
+            sb.append("  Idle ($state): ${"%.2f".format(percentage)}%\n")
+        }
+        sb.append("\n")
+    }
+    return sb.toString()
+}
+
 
 class TestService : Service() {
 
@@ -299,6 +419,8 @@ class TestService : Service() {
             prepare()
         }
 
+        val startSnapshot = cpu_analyse_start()
+
         // Open camera and start recording
         openCameraAndStartRecording(cam_w, cam_h, crop_w, crop_h, front, fps, crop, noiseReduction, LDC, faceDetection, EIS)
 
@@ -319,6 +441,9 @@ class TestService : Service() {
         playDefaultBing(500, 100)
 
         Log.d("CamPower", "Test done.... ")
+        val report = cpu_analyse_stop(startSnapshot)
+        log("CPU state")
+        log("${report}")
 
         stopRecording()
     }
