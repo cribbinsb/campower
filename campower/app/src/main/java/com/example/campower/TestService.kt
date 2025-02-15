@@ -74,8 +74,8 @@ fun readCpuCoreSnapshot(cpuId: Int): CpuCoreSnapshot {
                 try {
                     val freq = parts[0].toInt()
                     val timeMs = parts[1].toLong()
-                    // Convert ms to µs so that units match the cpuidle stats.
-                    cpufreqStats[freq] = timeMs * 1000
+                    // Convert 10ms to µs so that units match the cpuidle stats.
+                    cpufreqStats[freq] = timeMs * 10000
                 } catch (e: NumberFormatException) {
                     // Skip malformed line.
                 }
@@ -312,7 +312,7 @@ class TestService : Service() {
         // the crop rect is centered and will be 1920x1080 for 4K full image, 720p for 1080p, 640x360 for 720p
 
         while(true) {
-            performTest(true, 1920, 1080, 30, false, true, false, false, false, 4)
+            performTest(true, 1920, 1080, 30, false, true, false, false, false, 1)
         }
 
         for (runpercent in runPercents) {
