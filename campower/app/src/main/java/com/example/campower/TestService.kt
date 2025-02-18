@@ -312,46 +312,23 @@ class TestService : Service() {
         // the crop rect is centered and will be 1920x1080 for 4K full image, 720p for 1080p, 640x360 for 720p
 
         while(true) {
-            performTest(false, 1920, 1080, 30, false, true, false, false, false, 1)
+            performTest(false, 1920, 1080, 30,  true, false, true, false, false, false, 1)
+            performTest(false, 1920, 1080, 30,  false, false, true, false, false, false, 1)
+            performTest(true, 1920, 1080, 30,  false, false, true, false, false, false, 1)
+
         }
 
         for (runpercent in runPercents) {
 
-            //performTest(true, 1920, 1080, 30, false, true, false, true, false, 200)
-            //performTest(false, 3840, 2160, 25, false, true, true, true, true, 100)
-            //performTest(false, 3840, 2160, 25, false, true, false, false, false, runpercent)
-            //performTest(true, 640, 480, 15, false, true, false, false, false, runpercent)
-            //performTest(true, 1280, 720, 5, false, true, false, false, false, runpercent)
-            //performTest(true, 1280, 720, 5, false, true, false, true, false, runpercent)
-            performTest(true, 1920, 1080, 30, false, true, false, true, false, runpercent)
-            performTest(true, 1920, 1080, 30, false, true, false, false, false, runpercent)
-            performTest(true, 1920, 1080, 15, false, true, false, false, false, runpercent)
-            performTest(true, 1920, 1080, 5, false, true, false, false, false, runpercent)
-            performTest(true, 1920, 1080, 30, false, true, false, false, false, runpercent)
-            performTest(true, 640, 480, 5, false, true, false, false, false, runpercent)
-            performTest(true, 1280, 720, 15, false, true, false, false, false, runpercent)
-            performTest(true, 1280, 720, 30, false, true, false, false, false, runpercent)
-            performTest(false, 3840, 2160, 15, false, true, false, false, false, runpercent)
-
-            // cropped + NR + FD
-            //performTest(true, 1920, 1080, 15, true, true, false, true, false, runpercent)
-            //performTest(true, 1920, 1080, 8, true, true, false, true, false, runpercent)
-            //performTest(true, 1280, 720, 15, true, true, false, true, false, runpercent)
-            //performTest(false, 3840, 2160, 15, true, true, false, true, false, runpercent)
-
-            // no crop + NR + FD
-            //performTest(true, 1920, 1080, 30, false, true, false, true, false, runpercent)
-            //performTest(true, 1920, 1080, 15, false, true, false, true, false, runpercent)
-            //performTest(true, 1280, 720, 15, false, true, false, true, false, runpercent)
-            //performTest(false, 3840, 2160, 15, false, true, false, true, false, runpercent)
-
-            // Base = 1080p30+NS+FD
-            // Base-FD
-            //performTest(true, 1920, 1080, 30, false, true, false, false, false, runpercent)
-            // Base-NS
-            //performTest(true, 1920, 1080, 30, false, false, false, true, false, runpercent)
-            // Base-NS-FD
-            //performTest(true, 1920, 1080, 30, false, false, false, false, false, runpercent)
+            performTest(true, 1920, 1080, 30,  false, false, true, false, true, false, runpercent)
+            performTest(true, 1920, 1080, 30,  false, false, true, false, false, false, runpercent)
+            performTest(true, 1920, 1080, 15,  false, false, true, false, false, false, runpercent)
+            performTest(true, 1920, 1080, 5, false,  false, true, false, false, false, runpercent)
+            performTest(true, 1920, 1080, 30, false,  false, true, false, false, false, runpercent)
+            performTest(true, 640, 480, 5,  false, false, true, false, false, false, runpercent)
+            performTest(true, 1280, 720, 15, false,  false, true, false, false, false, runpercent)
+            performTest(true, 1280, 720, 30, false,  false, true, false, false, false, runpercent)
+            performTest(false, 3840, 2160, 15,  false, false, true, false, false, false, runpercent)
         }
 
         log2("Finished!")
@@ -360,6 +337,7 @@ class TestService : Service() {
 
     private fun performTest(front: Boolean, cam_w: Int, cam_h: Int,
                             fps: Int,
+                            zoom: Boolean,
                             crop: Boolean,
                             noiseReduction: Boolean,
                             LDC: Boolean,
@@ -377,6 +355,7 @@ class TestService : Service() {
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val teststr = "${if(front) "Frnt" else "Back"}"+
                 "_${cam_w}x${cam_h}x${fps}"+
+                "_Zm_${if(zoom) "Y" else "N"}"+
                 "_Crp_${if(crop) "Y" else "N"}"+
                 "_R$runpercent"+
                 "_NR_${if(noiseReduction) "Y" else "N"}"+
@@ -422,7 +401,7 @@ class TestService : Service() {
         val startSnapshot = cpu_analyse_start()
 
         // Open camera and start recording
-        openCameraAndStartRecording(cam_w, cam_h, crop_w, crop_h, front, fps, crop, noiseReduction, LDC, faceDetection, EIS)
+        openCameraAndStartRecording(cam_w, cam_h, crop_w, crop_h, front, fps, zoom, crop, noiseReduction, LDC, faceDetection, EIS)
 
         log("waiting for camera")
         if (frameSemaphore.tryAcquire(20, TimeUnit.SECONDS)) {
@@ -632,6 +611,7 @@ class TestService : Service() {
                                             crop_h: Int,
                                             front: Boolean,
                                             fps: Int,
+                                            zoom: Boolean,
                                             crop: Boolean,
                                             noiseReduction: Boolean,
                                             LDC: Boolean,
@@ -655,7 +635,7 @@ class TestService : Service() {
                 override fun onOpened(device: CameraDevice) {
                     Log.d("CamPower", "onOpened startCameraSession")
                     cameraDevice = device
-                    startCameraSession(cam_w, cam_h, crop_w, crop_h, fps, crop, noiseReduction, LDC, faceDetection, EIS)
+                    startCameraSession(cam_w, cam_h, crop_w, crop_h, fps, zoom, crop, noiseReduction, LDC, faceDetection, EIS)
                 }
                 override fun onDisconnected(camera: CameraDevice) {
                     Log.d("CamPower", "camera disconnected")
@@ -677,6 +657,7 @@ class TestService : Service() {
                                    crop_w: Int,
                                    crop_h: Int,
                                    fps: Int,
+                                   zoom: Boolean,
                                    crop: Boolean,
                                    noiseReduction: Boolean,
                                    LDC: Boolean,
@@ -731,14 +712,13 @@ class TestService : Service() {
                                 else
                                     set(CaptureRequest.DISTORTION_CORRECTION_MODE, CaptureRequest.DISTORTION_CORRECTION_MODE_OFF)
 
-                                if (false) {
+                                if (zoom) {
                                     // Ultrawide (for macro)	0.5x to 0.7x
                                     // Dedicated Macro Lens	1.0x (via lens switch, not zoom)
                                     // Telephoto (macro capable)	2.0x to 3.0x
 
-                                    // try set zoom to 0.3
-                                    set(CaptureRequest.CONTROL_ZOOM_RATIO, 0.3f);
-                                    set(
+                                    set(CaptureRequest.CONTROL_ZOOM_RATIO, 10f);
+                                    /*set(
                                         CaptureRequest.CONTROL_AF_MODE,
                                         CaptureRequest.CONTROL_AF_MODE_MACRO
                                     );
@@ -749,14 +729,14 @@ class TestService : Service() {
                                         "xiaomi.camera.lensType",
                                         "xiaomi.lens.type",
                                         "vendor.qti.camera.lens.type"
-                                    )
+                                    )*/
 
                                     //0: Main (Wide)
                                     //1: Ultra-Wide
                                     //2: Telephoto
                                     //3: Macro
 
-                                    for (keyName in possibleKeys) {
+                                    /*for (keyName in possibleKeys) {
                                         try {
                                             val customKey =
                                                 CaptureRequest.Key<Int>(keyName, Int::class.java)
@@ -769,7 +749,7 @@ class TestService : Service() {
                                         } catch (e: IllegalArgumentException) {
                                             Log.d("VendorTag", "Failed with $keyName: ${e.message}")
                                         }
-                                    }
+                                    }*/
                                 }
                             }
                             // submit single capture to check things are working
