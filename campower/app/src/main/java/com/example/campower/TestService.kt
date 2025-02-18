@@ -32,6 +32,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import android.util.Range
 import androidx.core.app.NotificationCompat
@@ -47,8 +48,7 @@ import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import kotlin.math.pow
 import kotlin.math.round
-import android.os.PowerManager
-import java.lang.NumberFormatException
+
 
 // Data class to hold a single CPU core’s snapshot.
 data class CpuCoreSnapshot(
@@ -312,7 +312,7 @@ class TestService : Service() {
         // the crop rect is centered and will be 1920x1080 for 4K full image, 720p for 1080p, 640x360 for 720p
 
         while(true) {
-            performTest(true, 1920, 1080, 30, false, true, false, false, false, 1)
+            performTest(false, 1920, 1080, 30, false, true, false, false, false, 1)
         }
 
         for (runpercent in runPercents) {
@@ -488,6 +488,14 @@ class TestService : Service() {
         }
         description.append("Lens Facing: $lensFacingDescription\n")
 
+        val physicalCameraIds = characteristics.physicalCameraIds.toTypedArray<String>()
+
+        if (physicalCameraIds.size > 0) {
+            description.append("Physical Camera IDs: " + physicalCameraIds.contentToString()+"\n")
+        } else {
+            description.append("No physical cameras listed. The device may use internal switching.\n")
+        }
+
         // Sensor information
         val sensorSize = characteristics.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
         if (sensorSize != null) {
@@ -509,6 +517,13 @@ class TestService : Service() {
         val focalLengths = characteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
         if (focalLengths != null && focalLengths.isNotEmpty()) {
             description.append("Focal Length: ${focalLengths.joinToString(", ")} mm\n")
+        }
+
+        val zoomRange = characteristics.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
+        if (zoomRange != null) {
+            description.append("Supported Zoom Ratio Range: ${zoomRange.lower}x to ${zoomRange.upper}x\n")
+        } else {
+            description.append("Zoom ratio range not supported, use crop region instead.\n")
         }
 
         // Optical Stabilization
@@ -682,12 +697,11 @@ class TestService : Service() {
 
                                 set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
 
-                                if (crop)
-                                {
-                                    val left : Int = (cam_w - crop_w)/2
-                                    val right : Int = left+crop_w
-                                    val top : Int = (cam_h - crop_h)/2
-                                    val bottom : Int = top+crop_h
+                                if (crop) {
+                                    val left: Int = (cam_w - crop_w) / 2
+                                    val right: Int = left + crop_w
+                                    val top: Int = (cam_h - crop_h) / 2
+                                    val bottom: Int = top + crop_h
                                     val cropRegion = Rect(left, top, right, bottom)
                                     set(CaptureRequest.SCALER_CROP_REGION, cropRegion)
                                 }
@@ -717,6 +731,46 @@ class TestService : Service() {
                                 else
                                     set(CaptureRequest.DISTORTION_CORRECTION_MODE, CaptureRequest.DISTORTION_CORRECTION_MODE_OFF)
 
+                                if (false) {
+                                    // Ultrawide (for macro)	0.5x to 0.7x
+                                    // Dedicated Macro Lens	1.0x (via lens switch, not zoom)
+                                    // Telephoto (macro capable)	2.0x to 3.0x
+
+                                    // try set zoom to 0.3
+                                    set(CaptureRequest.CONTROL_ZOOM_RATIO, 0.3f);
+                                    set(
+                                        CaptureRequest.CONTROL_AF_MODE,
+                                        CaptureRequest.CONTROL_AF_MODE_MACRO
+                                    );
+
+                                    val possibleKeys = listOf(
+                                        "org.codeaurora.qcamera3.lens_type",
+                                        "com.xiaomi.camera.lensType",
+                                        "xiaomi.camera.lensType",
+                                        "xiaomi.lens.type",
+                                        "vendor.qti.camera.lens.type"
+                                    )
+
+                                    //0: Main (Wide)
+                                    //1: Ultra-Wide
+                                    //2: Telephoto
+                                    //3: Macro
+
+                                    for (keyName in possibleKeys) {
+                                        try {
+                                            val customKey =
+                                                CaptureRequest.Key<Int>(keyName, Int::class.java)
+                                            set(customKey, 2) // Telephoto
+                                            Log.d(
+                                                "VendorTag",
+                                                "Successfully set $keyName to Telephoto."
+                                            )
+                                            break
+                                        } catch (e: IllegalArgumentException) {
+                                            Log.d("VendorTag", "Failed with $keyName: ${e.message}")
+                                        }
+                                    }
+                                }
                             }
                             // submit single capture to check things are working
                             val captureRequest=builder.build()
@@ -729,6 +783,10 @@ class TestService : Service() {
                                         result: TotalCaptureResult
                                     ) {
                                         log("First frame capture completed.")
+                                        val focalLength = result[CaptureResult.LENS_FOCAL_LENGTH]
+                                        if (focalLength != null) {log("Focal Length used: $focalLength mm")}
+                                        val zoomRatio = result[CaptureResult.CONTROL_ZOOM_RATIO]
+                                        if (zoomRatio != null) {log("Zoom ratio used: $zoomRatio")}
                                         val cropRegion: Rect? = result[CaptureResult.SCALER_CROP_REGION]
                                         if (cropRegion != null) { log("check: Crop ${cropRegion.width()} x ${cropRegion.height()}")}
                                         val aeFpsRange: Range<Int>? = result.get(CaptureResult.CONTROL_AE_TARGET_FPS_RANGE)
