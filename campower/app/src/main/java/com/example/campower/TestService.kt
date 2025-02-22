@@ -62,6 +62,13 @@ data class Snapshot(
     val timestamp: Long  // Recorded in nanoseconds
 )
 
+fun getTimeString() : String {
+    val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+    val currentDateTime = LocalDateTime.now()
+    val friendlyTime = currentDateTime.format(formatter)
+    return friendlyTime
+}
+
 // Helper function: Read a snapshot for one CPU core.
 fun readCpuCoreSnapshot(cpuId: Int): CpuCoreSnapshot {
     val cpufreqStats = mutableMapOf<Int, Long>()
@@ -181,6 +188,9 @@ class TestService : Service() {
     private lateinit var mediaRecorder: MediaRecorder
     private lateinit var backgroundHandler: Handler
     private lateinit var backgroundThread: HandlerThread
+    private lateinit var toneGen : ToneGenerator
+    private lateinit var wakeLock: PowerManager.WakeLock
+    private lateinit var wakeLock2: PowerManager.WakeLock
 
     // Battery monitoring
     private val scheduler = Executors.newSingleThreadScheduledExecutor()
@@ -189,7 +199,7 @@ class TestService : Service() {
     private var logFile2: File? = null
 
     private var total_faces : Int =0
-    private var total_face_callbacks : Int =0
+    private var total_frame_callbacks : Int =0
 
     private var outputDir: File? = null
 
@@ -206,12 +216,16 @@ class TestService : Service() {
     private var bm_lastTime : Long = 0
     private var bm_runpercent : Int = 0
     private var bm_slow_iter : Int = 0
+    private var bm_total_iter : Int = 0
     private var bm_teststr : String = ""
     private val doneSemaphore = Semaphore(0)
 
-    fun playDefaultBing(durationMs: Int, volume: Int) {
-        val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, volume) // 100 is the volume (0-100)
-        toneGen.startTone(ToneGenerator.TONE_PROP_BEEP, durationMs) // 200ms duration
+
+    fun playDefaultBing(durationMs: Int, volume: Int, tone : Int = ToneGenerator.TONE_PROP_BEEP) {
+        // ToneGenerator.TONE_PROP_NACK
+        // ToneGenerator.TONE_PROP_ACK
+        // ToneGenerator.TONE_SUP_ERROR
+        toneGen.startTone(tone, durationMs) // 200ms duration
     }
 
     fun createOutputDirectory(): File? {
@@ -240,15 +254,28 @@ class TestService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        // create unique output dir in "downloads"
-        outputDir = createOutputDirectory()
-        Log.d("CamPower", "Testservice onCreate...")
-        createNotificationChannel()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val serviceChannel = NotificationChannel(
+                CHANNEL_ID,
+                "Video Power Test Service Channel",
+                NotificationManager.IMPORTANCE_MAX
+            )
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(serviceChannel)
+        }
+
         try {
             startForeground(NOTIFICATION_ID, createNotification())
         } catch (e: Exception) {
             log( "startForeground failed")
         }
+
+        Log.d("CamPower", "Testservice onCreate...")
+
+        toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100) // 100 is the volume (0-100)
+        // create unique output dir in "downloads"
+        outputDir = createOutputDirectory()
         cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
         batteryManager = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
         // Start background thread for camera operations
@@ -261,12 +288,18 @@ class TestService : Service() {
         logFile2 = File(outputDir, "results.txt")
         if (!logFile2!!.exists()) logFile2!!.createNewFile()
         Log.d("CamPower", "Testservice... onCreate done")
+
+        playDefaultBing(2000, 100, ToneGenerator.TONE_SUP_RINGTONE)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // MDB : running in backgroundhandler seems to give permissions issues
         //backgroundHandler.post { runTests() }
-        Handler(Looper.getMainLooper()).post { runTests()}
+        val handlerThread = HandlerThread("BackgroundHandlerThread2").apply { start() }
+        val handler = Handler(handlerThread.looper)
+        handler.post { runTests() }
+
+        //Handler(Looper.getMainLooper()).post { runTests()}
         return START_STICKY
     }
 
@@ -312,10 +345,12 @@ class TestService : Service() {
         // the crop rect is centered and will be 1920x1080 for 4K full image, 720p for 1080p, 640x360 for 720p
 
         while(true) {
-            performTest(false, 1920, 1080, 30,  true, false, true, false, false, false, 1)
-            performTest(false, 1920, 1080, 30,  false, false, true, false, false, false, 1)
-            performTest(true, 1920, 1080, 30,  false, false, true, false, false, false, 1)
+            //performTest(false, 1920, 1080, 30,  false, false, true, false, false, false, 10)
 
+            performTest(true, 1920, 1080, 30,  false, false, true, false, true, false, 3)
+            //performTest(false, 1920, 1080, 30,  false, false, true, false, false, false, 10)
+            //performTest(true, 1920, 1080, 30,  false, false, true, false, false, false, 10)
+            //performTest(true, 1920, 1080, 30,  true, false, true, false, false, false, 10)
         }
 
         for (runpercent in runPercents) {
@@ -347,7 +382,7 @@ class TestService : Service() {
 
         // Reset face counts
         total_faces = 0
-        total_face_callbacks = 0
+        total_frame_callbacks = 0
 
         playDefaultBing(200, 100)
 
@@ -409,7 +444,7 @@ class TestService : Service() {
             Log.d("CamPower", "camera running ok")
         } else {
             log("camera never started!")
-            playDefaultBing(2000, 100)
+            playDefaultBing(2000, 100, ToneGenerator.TONE_SUP_ERROR)
             return
         }
 
@@ -417,7 +452,7 @@ class TestService : Service() {
         // Monitor battery every 10 seconds for 15 minutes (900 seconds)
         doBatteryMonitoring(teststr, runpercent)
 
-        playDefaultBing(500, 100)
+        playDefaultBing(500, 100, ToneGenerator.TONE_PROP_ACK)
 
         Log.d("CamPower", "Test done.... ")
         val report = cpu_analyse_stop(startSnapshot)
@@ -786,16 +821,15 @@ class TestService : Service() {
                                 null
                             )
                             // now the repeating request
-                            if (faceDetection) {
-                                session.setRepeatingRequest(captureRequest, object : CaptureCallback() {
-                                    override fun onCaptureCompleted(
-                                        session: CameraCaptureSession,
-                                        request: CaptureRequest,
-                                        result: TotalCaptureResult
-                                    ) {
-                                        total_face_callbacks+=1
-
-                                        if ((total_face_callbacks % 30) == 0) {
+                            session.setRepeatingRequest(captureRequest, object : CaptureCallback() {
+                                override fun onCaptureCompleted(
+                                    session: CameraCaptureSession,
+                                    request: CaptureRequest,
+                                    result: TotalCaptureResult
+                                ) {
+                                    total_frame_callbacks += 1
+                                    if (faceDetection) {
+                                        if ((total_frame_callbacks % 30) == 0) {
                                             val faces: Array<Face>? =
                                                 result[CaptureResult.STATISTICS_FACES]
                                             if (faces != null) {
@@ -805,11 +839,9 @@ class TestService : Service() {
                                             }
                                         }
                                     }
-                                }, backgroundHandler)
-                            }
-                            else {
-                                session.setRepeatingRequest(captureRequest, null, backgroundHandler)
-                            }
+                                }
+                            }, backgroundHandler)
+
                             Log.d("CamPower", "Starting media recorder")
                             mediaRecorder.start()
                         } catch (e: CameraAccessException) {
@@ -882,12 +914,9 @@ class TestService : Service() {
         }
         bm_prevCharge = currentCharge
 
-        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-        val currentDateTime = LocalDateTime.now()
-        val friendlyTime = currentDateTime.format(formatter)
-
+        val friendlyTime = getTimeString()
         if (!bm_started) {
-            log("Time: $friendlyTime, Charge: $currentCharge WAITING FOR CHARGE DROP")
+            log("Time: ${getTimeString()}, Charge: $currentCharge WAITING FOR CHARGE DROP")
             playDefaultBing(50, 45)
             return 2000
         }
@@ -897,10 +926,18 @@ class TestService : Service() {
         val iter_elapsed_seconds=(currentTime-bm_lastTime)/1000.0
         val iter_elapsed_hours= (currentTime-bm_lastTime) / (1000.0 * 60.0 * 60.0)
         bm_lastTime=currentTime
-        if (iter_elapsed_seconds>35) {
-            playDefaultBing(50, 100)
-            bm_slow_iter+=1
+        bm_total_iter+=1
+        if (iter_elapsed_seconds>60) {
+            bm_slow_iter += 1000
         }
+        if (bm_slow_iter!=0) {
+            playDefaultBing(50, 100, ToneGenerator.TONE_SUP_ERROR)
+        }
+        /*else {
+            if ((bm_total_iter % 2)==0) {
+                playDefaultBing(50, 100, ToneGenerator.TONE_PROP_ACK)
+            }
+        }*/
 
         // Calculate elapsed time in hours for average power calculation
         val elapsedTimeMillis = currentTime - bm_monitoringStartTime
@@ -928,7 +965,7 @@ class TestService : Service() {
                     "AvgPower(cur): ${roundDouble(averagePower2,3)} " +
                     "AvgPower(chg): ${roundDouble(averagePower,3)} " +
                     "Bat: ${currentBatteryLevelPct}% " +
-                    "Faces: $total_faces / $total_face_callbacks "
+                    "Faces: $total_faces CamFr: $total_frame_callbacks "
         )
 
         // Check threshold and handle stopping if needed...
@@ -941,7 +978,7 @@ class TestService : Service() {
                     "Energy(chg): ${roundDouble(bm_accumulatedEnergy,3)} "+
                     "AvgPower(cur): ${roundDouble(averagePower2,3)} "+
                     "AvgPower(chg): ${roundDouble(averagePower,3)} "+
-                    "SlowIter: ${bm_slow_iter} ")
+                    "SlowIter: ${bm_slow_iter} CamFr: $total_frame_callbacks")
             return -1
         }
 
@@ -971,19 +1008,35 @@ class TestService : Service() {
         bm_runpercent=runpercent
         bm_teststr=teststr
         bm_slow_iter=0
+        bm_total_iter=0
 
         // jump through hoops here to try and choose a reliable mechanism that
         // works in the background - who knows....
         val handlerThread = HandlerThread("BackgroundHandlerThread").apply { start() }
         val handler = Handler(handlerThread.looper)
+
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        val wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Campower::BatteryMonitor")
-        wakeLock.acquire()
+        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Campower::BatteryMonitor")
+        wakeLock.acquire(10 * 60 * 1000L)
+
         val task: Runnable = object : Runnable {
             override fun run() {
-                log("hello from background run")
-                // Your repeated work here
+                log("hello from background run wl:${wakeLock.isHeld}")
+
+                if (::wakeLock.isInitialized && wakeLock.isHeld) {
+                    try {
+                        //log("${getTimeString()} Releasing wakelock")
+                        wakeLock.release()
+                    } catch (e: RuntimeException) {
+                        //log("WakeLock already released or not held: ${e.message}")
+                    }
+                }
+
+                wakeLock.acquire(10 * 60 * 1000L)
+                //log("${getTimeString()} Wakelock re-acquired")
+
                 val delay=bm_iter()
+
                 if (delay>0) {
                     handler.postDelayed(this, delay.toLong()) // reschedule
                 }
@@ -997,9 +1050,9 @@ class TestService : Service() {
         log("task started; waiting for done semaphore")
         if (doneSemaphore.tryAcquire(30*60*60, TimeUnit.SECONDS)) {
             // Camera is initialized and first frame received
-            log("Semaphore ok")
+            log("Done semaphore ok")
         } else {
-            log("Semaphore timeout")
+            log("Done semaphore timeout")
         }
         wakeLock.release()
     }
@@ -1030,18 +1083,6 @@ class TestService : Service() {
         }
     }
 
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val serviceChannel = NotificationChannel(
-                CHANNEL_ID,
-                "Video Power Test Service Channel",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(serviceChannel)
-        }
-    }
-
     private fun createNotification(): Notification {
         val notificationIntent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE)
@@ -1050,6 +1091,7 @@ class TestService : Service() {
             .setContentText("Recording and analyzing video power consumption")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .build()
     }
 

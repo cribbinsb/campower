@@ -22,13 +22,8 @@ class MainActivity : AppCompatActivity() {
 
         val permissions = mutableListOf(
             Manifest.permission.CAMERA,
-            //Manifest.permission.FOREGROUND_SERVICE
+            Manifest.permission.POST_NOTIFICATIONS
         )
-
-        // Add FOREGROUND_SERVICE_CAMERA permission only on API > 30
-        //if (Build.VERSION.SDK_INT > Build.VERSION_CODES.R) { // API 30 corresponds to Build.VERSION_CODES.R
-        //    permissions.add(Manifest.permission.FOREGROUND_SERVICE_CAMERA)
-        //}
 
         val missing = permissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
@@ -36,7 +31,6 @@ class MainActivity : AppCompatActivity() {
 
         val isCameraGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         Log.d("CamPower", "CAMERA permission granted: $isCameraGranted")
-
 
         if (missing.isNotEmpty()) {
             Log.d("CamPower", "request permissions")
@@ -76,10 +70,10 @@ class MainActivity : AppCompatActivity() {
     private fun startTestService() {
         val intent = Intent(this, TestService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Log.d("CamPowerMDB", "start service1")
+            Log.d("CamPowerMDB", "startforegroundservice1")
             startForegroundService(intent)
         } else {
-            Log.d("CamPowerMDB", "start service2")
+            Log.d("CamPowerMDB", "start service1")
             startService(intent)
         }
         finish() // close activity since UI is not needed
